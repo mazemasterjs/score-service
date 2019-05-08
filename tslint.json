@@ -1,0 +1,12 @@
+{
+    "defaultSeverity": "error",
+    "extends": ["tslint-clean-code"],
+    "jsRules": {},
+    "rules": {
+        "quotemark": [true, "single", "avoid-escape", "avoid-template"],
+        "newspaper-order": false,
+        "max-line-length": [true, 160],
+        "jsdoc-format": true
+    },
+    "autoFixOnSave": true
+}
