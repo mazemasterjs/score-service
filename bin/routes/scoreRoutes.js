@@ -16,11 +16,15 @@ const util_1 = require("util");
 const logger_1 = require("@mazemasterjs/logger");
 const Config_1 = __importDefault(require("@mazemasterjs/shared-library/Config"));
 const DatabaseManager_1 = __importDefault(require("@mazemasterjs/database-manager/DatabaseManager"));
-const Score_1 = __importDefault(require("@mazemasterjs/shared-library/Score"));
+const Score_1 = require("@mazemasterjs/shared-library/Score");
 exports.defaultRouter = express_1.default.Router();
+// set module references
 const log = logger_1.Logger.getInstance();
 const config = Config_1.default.getInstance();
-const ROUTE_PATH = '/api/maze';
+// declare useful constants
+const ROUTE_PATH = '/api/score';
+const PROJECTION = {};
+// declare dbMan - initialized during startup
 let dbMan;
 /**
  * This just assigns mongo the instance of DatabaseManager.  We shouldn't be
@@ -45,9 +49,9 @@ DatabaseManager_1.default.getInstance()
  * @param res - express.Response
  */
 let getScoreCount = (req, res) => __awaiter(this, void 0, void 0, function* () {
-    log.trace(__filename, req.url, 'Handling request -> ' + rebuildUrl(req));
+    log.debug(__filename, req.url, 'Handling request -> ' + rebuildUrl(req));
     yield dbMan
-        .countDocuments(config.MONGO_COL_SCORES)
+        .getDocumentCount(config.MONGO_COL_SCORES)
         .then((count) => {
         log.debug(__filename, 'getScoreCount()', 'Score Count=' + count);
         res.status(200).json({ collection: config.MONGO_COL_SCORES, 'score-count': count });
@@ -57,54 +61,64 @@ let getScoreCount = (req, res) => __awaiter(this, void 0, void 0, function* () {
     });
 });
 /**
- * Gets and returns a json maze object with the specified Maze.Id.
+ * Deletes all mazes found matching the given query parameters
  *
- * @param req - express.Request
- * @param res - express.Response
+ * @param req
+ * @param res
  */
-let getScore = (req, res) => __awaiter(this, void 0, void 0, function* () {
-    log.trace(__filename, req.url, 'Handling request -> ' + rebuildUrl(req));
-    yield dbMan
-        .getDocument(config.MONGO_COL_SCORES, req.params.id)
-        .then((doc) => {
-        if (doc) {
-            let score = new Score_1.default(doc);
-            log.trace(__filename, req.url, `Score ${score.Id} found and returned.`);
-            res.status(200).json(score);
+let getScores = (req, res) => __awaiter(this, void 0, void 0, function* () {
+    log.debug(__filename, req.url, 'Handling request -> ' + rebuildUrl(req));
+    const pageSize = 10;
+    let pageNum = 1;
+    const query = {};
+    let scores = new Array();
+    let done = false;
+    // build the json object containing score parameters to search for
+    for (const key in req.query) {
+        query[key] = req.query[key];
+    }
+    log.debug(__filename, 'getScores()', `Querying scores with parameter(s): ${JSON.stringify(query)}`);
+    try {
+        // loop through the paged list of scores and return all that match the given query parameters
+        while (!done) {
+            let page = yield dbMan.getDocuments(config.MONGO_COL_SCORES, query, PROJECTION, pageSize, pageNum);
+            if (page.length > 0) {
+                log.debug(__filename, 'getScores()', `-> Page #${pageNum}, pushing ${page.length} documents into scores array.`);
+                // can't easily use Array.concat, so have to loop and push
+                for (const scoreDoc of page) {
+                    // instantiate as Score to validate data
+                    try {
+                        const score = new Score_1.Score(scoreDoc);
+                        scores.push(score);
+                    }
+                    catch (err) {
+                        log.warn(__filename, 'getScores()', 'Invalid score document found in database: _id=' + scoreDoc._id);
+                    }
+                }
+            }
+            // if we don't have at least pageSize elements, we've hit the last page
+            if (page.length < pageSize) {
+                done = true;
+                log.debug(__filename, 'getScores()', `-> Finished. ${scores.length} score documents collected from ${pageNum} pages.`);
+            }
+            else {
+                pageNum++;
+            }
+        }
+        // return the results
+        log.debug(__filename, 'getScores()', `Returning ${scores.length} scores.`);
+        if (scores.length === 1) {
+            res.status(200).json(scores[0]);
         }
         else {
-            res.status(404).json({ status: '404', message: 'Score not found.' });
+            res.status(200).json(scores);
         }
-    })
-        .catch((err) => {
-        log.error(__filename, `Route -> [${req.url}]`, 'Error fetching score ->', err);
+    }
+    catch (err) {
+        // log the error and return message
+        log.error(__filename, 'getScores()', `Error while collecting scores ->`, err);
         res.status(500).json({ status: '500', message: err.message });
-    });
-});
-/**
- * Gets and returns a json maze object with the specified Maze.Id.
- *
- * @param req - express.Request
- * @param res - express.Response
- */
-let getScoresByMaze = (req, res) => __awaiter(this, void 0, void 0, function* () {
-    log.trace(__filename, req.url, 'Handling request -> ' + rebuildUrl(req));
-    yield dbMan
-        .getDocument(config.MONGO_COL_SCORES, req.params.id)
-        .then((doc) => {
-        if (doc) {
-            let score = new Score_1.default(doc);
-            log.trace(__filename, req.url, `Score ${score.Id} found and returned.`);
-            res.status(200).json(score);
-        }
-        else {
-            res.status(404).json({ status: '404', message: 'Score not found.' });
-        }
-    })
-        .catch((err) => {
-        log.error(__filename, `Route -> [${req.url}]`, 'Error fetching score ->', err);
-        res.status(500).json({ status: '500', message: err.message });
-    });
+    }
 });
 /**
  * Inserts the score from the JSON http body into the mongo database.
@@ -114,7 +128,15 @@ let getScoresByMaze = (req, res) => __awaiter(this, void 0, void 0, function* ()
  */
 let insertScore = (req, res) => __awaiter(this, void 0, void 0, function* () {
     log.debug(__filename, req.url, 'Handling request -> ' + rebuildUrl(req));
-    let score = req.body;
+    let score;
+    // instantiate as Score to validate document body
+    try {
+        score = new Score_1.Score(req.body);
+    }
+    catch (err) {
+        log.error(__filename, 'insertScore(...)', 'Unable to instantiate Score ->', err);
+        return res.status(500).json({ status: '500', message: `${err.name} - ${err.message}` });
+    }
     yield dbMan
         .insertDocument(config.MONGO_COL_SCORES, score)
         .then((result) => {
@@ -122,7 +144,7 @@ let insertScore = (req, res) => __awaiter(this, void 0, void 0, function* () {
     })
         .catch((err) => {
         log.error(__filename, req.url, 'Error inserting score ->', err);
-        res.status(400).json({ status: '400', message: `${err.name} - ${err.message}` });
+        res.status(400).json(err);
     });
 });
 /**
@@ -133,15 +155,24 @@ let insertScore = (req, res) => __awaiter(this, void 0, void 0, function* () {
  * @param res
  */
 let updateScore = (req, res) => __awaiter(this, void 0, void 0, function* () {
-    log.trace(__filename, req.url, 'Handling request -> ' + rebuildUrl(req));
+    log.debug(__filename, req.url, 'Handling request -> ' + rebuildUrl(req));
     let score = req.body;
+    // instantiate as Score to validate document body
+    try {
+        score = new Score_1.Score(req.body);
+    }
+    catch (err) {
+        log.error(__filename, 'insertScore(...)', 'Unable to instantiate Score ->', err);
+        return res.status(500).json({ status: '500', message: `${err.name} - ${err.message}` });
+    }
     yield dbMan
-        .updateDocument(config.MONGO_COL_SCORES, score.id, score)
+        .updateDocument(config.MONGO_COL_SCORES, { id: score.id }, score)
         .then((result) => {
+        log.debug(__filename, `updateScore(${score.id})`, 'Score updated.');
         res.status(200).json(result);
     })
         .catch((err) => {
-        log.error(__filename, req.url, 'Error updating score ->', err);
+        log.error(__filename, `updateScore(${score.id})`, 'Error updating score ->', err);
         res.status(500).json({ status: '500', message: `${err.name} - ${err.message}` });
     });
 });
@@ -152,15 +183,18 @@ let updateScore = (req, res) => __awaiter(this, void 0, void 0, function* () {
  * @param res - express.Response
  */
 let deleteScore = (req, res) => __awaiter(this, void 0, void 0, function* () {
-    log.trace(__filename, req.url, 'Handling request -> ' + rebuildUrl(req));
-    let ret = yield dbMan.deleteDocument(config.MONGO_COL_SCORES, req.params.id);
-    // check for errors and respond correctly
-    if (ret instanceof Error) {
-        res.status(500).json({ error: ret.name, message: ret.message });
-    }
-    else {
-        res.status(200).json(ret);
-    }
+    log.debug(__filename, req.url, 'Handling request -> ' + rebuildUrl(req));
+    let query = { id: req.params.scoreId };
+    yield dbMan
+        .deleteDocument(config.MONGO_COL_SCORES, query)
+        .then((result) => {
+        log.debug(__filename, req.url, `${result.deletedCount} score(s) deleted.`);
+        res.status(200).json(result);
+    })
+        .catch((err) => {
+        log.error(__filename, req.url, 'Error deleting score ->', err);
+        res.status(500).json({ status: '500', message: `${err.name} - ${err.message}` });
+    });
 });
 /**
  * Responds with the raw JSON service document unless the "?html"
@@ -169,7 +203,7 @@ let deleteScore = (req, res) => __awaiter(this, void 0, void 0, function* () {
  * @param res
  */
 let getServiceDoc = (req, res) => {
-    log.trace(__filename, `Route -> [${req.url}]`, 'Handling request.');
+    log.debug(__filename, `Route -> [${req.url}]`, 'Handling request.');
     res.status(200).json(config.SERVICE_DOC);
 };
 /**
@@ -212,16 +246,13 @@ function getProtocolHostPort(req) {
 }
 // Route -> http.get mappings
 exports.defaultRouter.get('/get/count', getScoreCount);
-exports.defaultRouter.get('/get/:id', getScore);
-exports.defaultRouter.get('/get/:mazeId', getScoresByMaze);
-// defaultRouter.get('/get/:teamId', getScoresByTeam);
-// defaultRouter.get('/get/:coderName', getScoresByCoder);
+exports.defaultRouter.get('/get', getScores);
 exports.defaultRouter.get('/service', getServiceDoc);
 // Route -> http.put mappings
 exports.defaultRouter.put('/insert', insertScore);
 exports.defaultRouter.put('/update', updateScore);
 // Route -> http.delete mappings
-exports.defaultRouter.delete('/delete/:id', deleteScore);
+exports.defaultRouter.delete('/delete/:scoreId', deleteScore);
 // capture all unhandled routes
 exports.defaultRouter.get('/*', unhandledRoute);
 exports.defaultRouter.put('/*', unhandledRoute);
@@ -229,4 +260,4 @@ exports.defaultRouter.delete('/*', unhandledRoute);
 exports.defaultRouter.post('/*', unhandledRoute);
 // expose router as module
 exports.default = exports.defaultRouter;
-//# sourceMappingURL=default.js.map
+//# sourceMappingURL=scoreRoutes.js.map

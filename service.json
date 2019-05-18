@@ -12,21 +12,23 @@
         },
         {
             "name": "get",
-            "description": "Get a specific score from the Scores collection.",
+            "description": "Get score(s) matching the given query parameters. Example: /get?teamId=SomeTeamId&mazeId=3:3:3:Seed",
             "method": "get",
             "contentType": "application/json",
-            "url": "get/scoreId",
-            "arguments": [
-                {
-                    "name": "scoreId",
-                    "description": "scoreId is a string GUID used as primary key.",
-                    "type": "string"
-                }
-            ]
+            "url": "get?key=val&key=val...",
+            "arguments": []
         },
         {
             "name": "insert",
-            "description": "Insert the JSON representation of a Score object into the scores collection. Data provided via document body.",
+            "description": "Insert the JSON representation of a Score object into the scores collection. Full score object must be passed via document body.",
+            "method": "put",
+            "contentType": "application/json",
+            "url": "insert",
+            "arguments": []
+        },
+        {
+            "name": "update",
+            "description": "Update an existing score in the database. Full score object must be passed via document body.",
             "method": "put",
             "contentType": "application/json",
             "url": "insert",
@@ -34,7 +36,7 @@
         },
         {
             "name": "delete",
-            "description": "Delete the document(s) with the given scoreId from the scores collection.",
+            "description": "Delete score(s) matching the given query parameters. Example: /delete?scoreId=SomeScoreId",
             "method": "delete",
             "contentType": "application/json",
             "url": "delete/{scoreId}",
