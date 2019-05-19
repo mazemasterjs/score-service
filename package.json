@@ -26,8 +26,8 @@
     "homepage": "https://github.com/mazemasterjs/score-service#readme",
     "dependencies": {
         "@mazemasterjs/database-manager": "^1.2.7",
-        "@mazemasterjs/logger": "^1.0.7",
-        "@mazemasterjs/shared-library": "^1.6.0",
+        "@mazemasterjs/logger": "^1.0.10",
+        "@mazemasterjs/shared-library": "^1.6.1",
         "compression": "^1.7.4",
         "cors": "^2.8.5",
         "express": "^4.17.0"
