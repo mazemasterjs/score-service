@@ -1,6 +1,6 @@
 {
     "name": "score-service",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "description": "Handles CRUD+ operations for score data in the MongoDB server MazeMasterJS",
     "main": "index.js",
     "scripts": {
