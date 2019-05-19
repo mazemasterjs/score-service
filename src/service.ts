@@ -1,22 +1,26 @@
-import fs from 'fs';
-import path from 'path';
 import express from 'express';
 import compression from 'compression';
 import bodyParser from 'body-parser';
 import {format as fmt} from 'util';
-import {Config} from '@mazemasterjs/shared-library/Config';
-import {Logger} from '@mazemasterjs/logger';
+import {Logger, LOG_LEVELS} from '@mazemasterjs/logger';
 import {defaultRouter} from './routes/scoreRoutes';
 import {probesRouter} from './routes/probes';
 import DatabaseManager from '@mazemasterjs/database-manager/DatabaseManager';
 import {Server} from 'http';
 import cors from 'cors';
 
-// load config
-const config = Config.getInstance();
+// load environment vars - not all are used at this level, but I want to validate them all
+// here during the intial service startup process
+const HTTP_PORT = process.env.HTTP_PORT === undefined ? 8080 : parseInt(process.env.HTTP_PORT + '', 10);
+const APP_NAME = process.env.APP_NAME === undefined ? 'NOT_SET' : process.env.APP_NAME;
+const LOG_LEVEL = process.env.LOG_LEVEL === undefined ? LOG_LEVELS.INFO : parseInt(process.env.LOG_LEVEL + '', 10);
+const MONGO_COL_SCORES = process.env.MOGO_COL_SCORES === undefined ? 'scores' : process.env.MOGO_COL_SCORES;
+const MONGO_COL_TROPHIES = process.env.MONGO_COL_TROPHIES === undefined ? 'trophies' : process.env.MONGO_COL_TROPHIES;
+const SERVICE_DOC_FILE = process.env.SERVICE_DOC_FILE === undefined ? 'service.json' : process.env.SERVICE_DOC_FILE;
 
 // set up logger
 const log = Logger.getInstance();
+log.LogLevel = LOG_LEVEL;
 
 // create express app
 const app = express();
@@ -31,17 +35,61 @@ let dbMan: DatabaseManager;
  * APPLICATION ENTRY POINT
  */
 async function startService() {
-    launchExpress();
+    log.info(__filename, 'startService()', 'Validating environment-based configuration...');
+    validateConfig();
+
     log.info(__filename, 'startService()', 'Opening database connection...');
     await DatabaseManager.getInstance()
         .then((instance) => {
             dbMan = instance;
-            log.debug(__filename, 'startService()', 'Database connection ready.');
+            log.debug(__filename, 'startService()', 'Database connection ready, launch Express server.');
+            launchExpress();
         })
         .catch((err) => {
             log.error(__filename, 'startService()', 'Unable to connect to database.', err);
             doShutdown();
         });
+}
+
+/**
+ * Check expected environment vars and respond appropriately
+ */
+function validateConfig() {
+    if (process.env.HTTP_PORT === undefined) {
+        log.warn(__filename, 'validateConfig()', `HTTP_PORT not set, defaulted to [${HTTP_PORT}]`);
+    } else {
+        log.info(__filename, 'validateConfig()', `HTTP_PORT: [${HTTP_PORT}]`);
+    }
+
+    if (process.env.APP_NAME === undefined) {
+        log.warn(__filename, 'validateConfig()', `APP_NAME not set, defaulted to [${APP_NAME}]`);
+    } else {
+        log.info(__filename, 'validateConfig()', `APP_NAME: [${APP_NAME}]`);
+    }
+
+    if (process.env.MONGO_COL_SCORES === undefined) {
+        log.warn(__filename, 'validateConfig()', `MONGO_COL_SCORES not set, defaulted to [${MONGO_COL_SCORES}]`);
+    } else {
+        log.info(__filename, 'validateConfig()', `MONGO_COL_SCORES: [${MONGO_COL_SCORES}]`);
+    }
+
+    if (process.env.MONGO_COL_TROPHIES === undefined) {
+        log.warn(__filename, 'validateConfig()', `MONGO_COL_TROPHIES not set, defaulted to [${MONGO_COL_TROPHIES}]`);
+    } else {
+        log.info(__filename, 'validateConfig()', `MONGO_COL_TROPHIES: [${MONGO_COL_TROPHIES}]`);
+    }
+
+    if (process.env.SERVICE_DOC_FILE === undefined) {
+        log.warn(__filename, 'validateConfig()', `SERVICE_DOC_FILE not set, defaulted to [${SERVICE_DOC_FILE}]`);
+    } else {
+        log.info(__filename, 'validateConfig()', `SERVICE_DOC_FILE: [${SERVICE_DOC_FILE}]`);
+    }
+
+    if (process.env.LOG_LEVEL === undefined) {
+        log.warn(__filename, 'validateConfig()', `LOG_LEVEL not set, defaulted to [${LOG_LEVEL}]`);
+    } else {
+        log.info(__filename, 'validateConfig()', `LOG_LEVEL: [${LOG_LEVELS[LOG_LEVEL]}] (${LOG_LEVEL})`);
+    }
 }
 
 /**
@@ -97,14 +145,9 @@ function launchExpress() {
     });
 
     // and start the httpServer - starts the service
-    httpServer = app.listen(config.HTTP_PORT, () => {
-        // sever is now listening - live probe should be active, but ready probe must wait for
-        // routes to be mapped.
-        log.info(
-            __filename,
-            'launchExpress()',
-            fmt('MazeMasterJS/%s -> Service is now LIVE (but not ready) and listening on port %d.', config.APP_NAME, config.HTTP_PORT)
-        );
+    httpServer = app.listen(HTTP_PORT, () => {
+        // sever is now listening - live probe should be active, but ready probe must wait for routes to be mapped.
+        log.info(__filename, 'launchExpress()', fmt('MazeMasterJS/%s -> Service is now LIVE, READY, and listening on port %d.', APP_NAME, HTTP_PORT));
     });
 }
 

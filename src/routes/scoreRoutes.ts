@@ -1,22 +1,27 @@
 import express from 'express';
-import {format as fmt} from 'util';
-import {Logger} from '@mazemasterjs/logger';
-import Config from '@mazemasterjs/shared-library/Config';
-import Service from '@mazemasterjs/shared-library/Service';
+import { Logger } from '@mazemasterjs/logger';
 import DatabaseManager from '@mazemasterjs/database-manager/DatabaseManager';
-import {IScore} from '@mazemasterjs/shared-library/IScore';
-import {Score} from '@mazemasterjs/shared-library/Score';
-import {json} from 'body-parser';
+import { Score } from '@mazemasterjs/shared-library/Score';
+import { Trophy } from '@mazemasterjs/shared-library/Trophy';
+import fs from 'fs';
+import path from 'path';
+import { DATABASES } from '@mazemasterjs/shared-library/Enums';
 
 export const defaultRouter = express.Router();
 
 // set module references
 const log: Logger = Logger.getInstance();
-const config: Config = Config.getInstance();
 
 // declare useful constants
 const ROUTE_PATH: string = '/api/score';
 const PROJECTION = {};
+
+// load environment vars
+const MONGO_COL_SCORES = process.env.MOGO_COL_SCORES === undefined ? 'scores' : process.env.MOGO_COL_SCORES;
+const MONGO_COL_TROPHIES = process.env.MONGO_COL_TROPHIES === undefined ? 'trophies' : process.env.MONGO_COL_TROPHIES;
+const SERVICE_DOC_FILE = process.env.SERVICE_DOC_FILE === undefined ? 'service.json' : process.env.SERVICE_DOC_FILE;
+const SERVICE_DOC = loadServiceDoc(SERVICE_DOC_FILE);
+const TROPHY_DATA_FILE = path.resolve('data/default-trophy-list.json');
 
 // declare dbMan - initialized during startup
 let dbMan: DatabaseManager;
@@ -27,99 +32,179 @@ let dbMan: DatabaseManager;
  * we'll do some logging / error checking anyway.
  */
 DatabaseManager.getInstance()
-    .then((instance) => {
-        dbMan = instance;
-        // enable the "readiness" probe that tells OpenShift that it can send traffic to this service's pod
-        config.READY_TO_ROCK = true;
-        log.info(__filename, 'DatabaseManager.getInstance()', 'Service is now LIVE, READY, and taking requests.');
-    })
-    .catch((err) => {
-        log.error(__filename, 'DatabaseManager.getInstance()', 'Error getting DatabaseManager instance ->', err);
-    });
+  .then(instance => {
+    dbMan = instance;
+    log.info(__filename, 'DatabaseManager.getInstance()', 'DatabaseManager is ready for use.');
+  })
+  .catch(err => {
+    log.error(__filename, 'DatabaseManager.getInstance()', 'Error getting DatabaseManager instance ->', err);
+  });
 
 /**
- * Response with json score-count value showing the count of all score documents found
- * in the score collection.
+ * Attempt to load the service document from disk and return as json
+ *
+ * @param file - Relative file name & path
+ * */
+function loadServiceDoc(file: string): any {
+  const absFile = path.resolve(file);
+
+  if (!fs.existsSync(absFile)) {
+    let error: Error = new Error(`${absFile} not found.`);
+    log.error(__filename, `loadServiceDoc(${file})`, 'Error ->', error);
+    throw error;
+  } else {
+    return JSON.parse(fs.readFileSync(absFile, 'UTF-8'));
+  }
+}
+
+let genTrophies = async (req: express.Request, res: express.Response) => {
+  log.debug(__filename, req.url, 'Handling request -> ' + req.path);
+
+  if (!fs.existsSync(TROPHY_DATA_FILE)) {
+    log.warn(__filename, 'defaultTrophies()', 'Cannot continue, file not found: ' + DATABASES);
+    return;
+  }
+
+  let data = JSON.parse(fs.readFileSync(TROPHY_DATA_FILE, 'UTF-8'));
+  for (const tdata of data.trophies) {
+    const trophy: Trophy = new Trophy(tdata);
+
+    // first try to delete the trophy (it may not exist, but that's ok)
+    await dbMan
+      .deleteDocument(MONGO_COL_TROPHIES, { id: trophy.Id })
+      .then(result => {
+        if (result.deletedCount && result.deletedCount > 0) {
+          log.debug(__filename, 'defaultTrophies()', `${result.deletedCount} trophy document(s) with id=${trophy.Id} deleted`);
+        } else {
+          log.debug(__filename, 'defaultTrophies()', `Trophy (id=${trophy.Id}) could not be deleted (may not exist).`);
+        }
+      })
+      .catch(err => {
+        log.warn(__filename, 'defaultTrophies()', `Error deleting trophy (id=${trophy.Id}) -> ${err.message}`);
+      });
+
+    // now insert the trophy from our json file
+    await dbMan
+      .insertDocument(MONGO_COL_TROPHIES, trophy)
+      .then(result => {
+        log.debug(__filename, 'defaultTrophies()', `Trophy (id=${trophy.Id}) inserted.`);
+      })
+      .catch(err => {
+        log.warn(__filename, 'defaultTrophies()', `Error inserting trophy (id=${trophy.Id}) -> ${err.message}`);
+      });
+  }
+
+  await dbMan
+    .getDocumentCount(MONGO_COL_TROPHIES)
+    .then(count => {
+      log.debug(__filename, 'defaultTrophies()', 'Trophy Document Count=' + count);
+      res.status(200).json({ message: 'Default trophies generated.', collection: MONGO_COL_TROPHIES, 'trophy-count': count });
+    })
+    .catch(err => {
+      res.status(500).json(err);
+    });
+};
+
+/**
+ * Responds with json value showing the document count in the given collection
  *
  * @param req - express.Request
  * @param res - express.Response
  */
-let getScoreCount = async (req: express.Request, res: express.Response) => {
-    log.debug(__filename, req.url, 'Handling request -> ' + rebuildUrl(req));
-    await dbMan
-        .getDocumentCount(config.MONGO_COL_SCORES)
-        .then((count) => {
-            log.debug(__filename, 'getScoreCount()', 'Score Count=' + count);
-            res.status(200).json({collection: config.MONGO_COL_SCORES, 'score-count': count});
-        })
-        .catch((err) => {
-            res.status(500).json(err);
-        });
-};
+async function getCount(colName: string, req: express.Request, res: express.Response) {
+  log.debug(__filename, req.url, 'Handling request -> ' + req.path);
+  await dbMan
+    .getDocumentCount(colName)
+    .then(count => {
+      log.debug(__filename, `getCount(${colName}, req, res)`, 'Count=' + count);
+      res.status(200).json({ collection: colName, count: count });
+    })
+    .catch(err => {
+      res.status(500).json({ error: err.name, message: err.message });
+    });
+}
 
 /**
- * Deletes all mazes found matching the given query parameters
+ * Returns all documents from the given collection that match the query parameters. If no
+ * query parameters are given, all documents will be returned (be careful!)
  *
- * @param req
- * @param res
+ * @param colName - collection to query
+ * @param req - express request
+ * @param res - express response
  */
-let getScores = async (req: express.Request, res: express.Response) => {
-    log.debug(__filename, req.url, 'Handling request -> ' + rebuildUrl(req));
-    const pageSize = 10;
-    let pageNum = 1;
-    const query: any = {};
-    let scores = new Array<Score>();
-    let done = false;
+async function getDocs(colName: string, req: express.Request, res: express.Response) {
+  const method = `getDocs(${colName}, req, res)`;
+  log.debug(__filename, method, 'Getting requested documents from database.');
 
-    // build the json object containing score parameters to search for
-    for (const key in req.query) {
-        query[key] = req.query[key];
+  const pageSize = 10;
+  let pageNum = 1;
+  const query: any = {};
+  let docs = new Array<any>();
+  let done = false;
+
+  // build the json object containing score parameters to search for
+  for (const key in req.query) {
+    query[key] = req.query[key];
+  }
+
+  log.debug(__filename, method, `Getting ${colName} with parameter(s): ${JSON.stringify(query)}`);
+
+  try {
+    // loop through the paged list of docs and build a return array.
+    while (!done) {
+      let page = await dbMan.getDocuments(colName, query, {}, pageSize, pageNum);
+
+      if (page.length > 0) {
+        log.debug(__filename, method, `Page #${pageNum}: Processing ${page.length} documents.`);
+
+        // can't easily use Array.concat, so have to loop and push
+        for (const doc of page) {
+          // instantiate as Score to validate data
+          switch (colName) {
+            case MONGO_COL_SCORES: {
+              try {
+                const score = new Score(doc);
+                docs.push(score);
+              } catch (err) {
+                log.warn(__filename, method, 'Invalid score document found - discarding it.  Database _id=' + doc._id);
+              }
+              break;
+            }
+            case MONGO_COL_TROPHIES: {
+              try {
+                const trophy = new Trophy(doc);
+                docs.push(trophy);
+              } catch (err) {
+                log.warn(__filename, method, 'Invalid trophy document found - discarding it.  Database _id=' + doc._id);
+              }
+              break;
+            }
+          }
+        }
+      }
+
+      // if we don't have at least pageSize elements, we've hit the last page
+      if (page.length < pageSize) {
+        done = true;
+        log.debug(__filename, method, `-> Finished. ${docs.length} documents documents collected from ${pageNum} pages.`);
+      } else {
+        pageNum++;
+      }
     }
 
-    log.debug(__filename, 'getScores()', `Querying scores with parameter(s): ${JSON.stringify(query)}`);
-
-    try {
-        // loop through the paged list of scores and return all that match the given query parameters
-        while (!done) {
-            let page = await dbMan.getDocuments(config.MONGO_COL_SCORES, query, PROJECTION, pageSize, pageNum);
-
-            if (page.length > 0) {
-                log.debug(__filename, 'getScores()', `-> Page #${pageNum}, pushing ${page.length} documents into scores array.`);
-
-                // can't easily use Array.concat, so have to loop and push
-                for (const scoreDoc of page) {
-                    // instantiate as Score to validate data
-                    try {
-                        const score = new Score(scoreDoc);
-                        scores.push(score);
-                    } catch (err) {
-                        log.warn(__filename, 'getScores()', 'Invalid score document found in database: _id=' + scoreDoc._id);
-                    }
-                }
-            }
-
-            // if we don't have at least pageSize elements, we've hit the last page
-            if (page.length < pageSize) {
-                done = true;
-                log.debug(__filename, 'getScores()', `-> Finished. ${scores.length} score documents collected from ${pageNum} pages.`);
-            } else {
-                pageNum++;
-            }
-        }
-
-        // return the results
-        log.debug(__filename, 'getScores()', `Returning ${scores.length} scores.`);
-        if (scores.length === 1) {
-            res.status(200).json(scores[0]);
-        } else {
-            res.status(200).json(scores);
-        }
-    } catch (err) {
-        // log the error and return message
-        log.error(__filename, 'getScores()', `Error while collecting scores ->`, err);
-        return res.status(500).json({error: err.name, message: err.message});
+    // return the results
+    log.debug(__filename, method, `Returning ${docs.length} documents from the '${colName}' collection.`);
+    if (docs.length === 1) {
+      res.status(200).json(docs[0]);
+    } else {
+      res.status(200).json(docs);
     }
-};
+  } catch (err) {
+    // log the error and return message
+    log.error(__filename, method, `Error while collecting documents ->`, err);
+    return res.status(500).json({ error: err.name, message: err.message });
+  }
+}
 
 /**
  * Inserts the score from the JSON http body into the mongo database.
@@ -128,26 +213,26 @@ let getScores = async (req: express.Request, res: express.Response) => {
  * @param res
  */
 let insertScore = async (req: express.Request, res: express.Response) => {
-    log.debug(__filename, req.url, 'Handling request -> ' + rebuildUrl(req));
-    let score: Score;
+  log.debug(__filename, req.url, 'Handling request -> ' + req.path);
+  let score: Score;
 
-    // instantiate as Score to validate document body
-    try {
-        score = new Score(req.body);
-    } catch (err) {
-        log.error(__filename, 'insertScore(...)', 'Unable to instantiate Score ->', err);
-        return res.status(500).json({error: err.name, message: err.message});
-    }
+  // instantiate as Score to validate document body
+  try {
+    score = new Score(req.body);
+  } catch (err) {
+    log.error(__filename, 'insertScore(...)', 'Unable to instantiate Score ->', err);
+    return res.status(500).json({ error: err.name, message: err.message });
+  }
 
-    await dbMan
-        .insertDocument(config.MONGO_COL_SCORES, score)
-        .then((result) => {
-            return res.status(200).json(result);
-        })
-        .catch((err: Error) => {
-            log.error(__filename, req.url, 'Error inserting score ->', err);
-            return res.status(500).json(err);
-        });
+  await dbMan
+    .insertDocument(MONGO_COL_SCORES, score)
+    .then(result => {
+      return res.status(200).json(result);
+    })
+    .catch((err: Error) => {
+      log.error(__filename, req.url, 'Error inserting score ->', err);
+      return res.status(500).json(err);
+    });
 };
 
 /**
@@ -158,27 +243,27 @@ let insertScore = async (req: express.Request, res: express.Response) => {
  * @param res
  */
 let updateScore = async (req: express.Request, res: express.Response) => {
-    log.debug(__filename, req.url, 'Handling request -> ' + rebuildUrl(req));
-    let score = req.body;
+  log.debug(__filename, req.url, 'Handling request -> ' + req.path);
+  let score = req.body;
 
-    // instantiate as Score to validate document body
-    try {
-        score = new Score(req.body);
-    } catch (err) {
-        log.error(__filename, 'insertScore(...)', 'Unable to instantiate Score ->', err);
-        return res.status(500).json({error: err.name, message: err.message});
-    }
+  // instantiate as Score to validate document body
+  try {
+    score = new Score(req.body);
+  } catch (err) {
+    log.error(__filename, 'insertScore(...)', 'Unable to instantiate Score ->', err);
+    return res.status(500).json({ error: err.name, message: err.message });
+  }
 
-    await dbMan
-        .updateDocument(config.MONGO_COL_SCORES, {id: score.id}, score)
-        .then((result) => {
-            log.debug(__filename, `updateScore(${score.id})`, 'Score updated.');
-            res.status(200).json(result);
-        })
-        .catch((err) => {
-            log.error(__filename, `updateScore(${score.id})`, 'Error updating score ->', err);
-            res.status(500).json(err);
-        });
+  await dbMan
+    .updateDocument(MONGO_COL_SCORES, { id: score.id }, score)
+    .then(result => {
+      log.debug(__filename, `updateScore(${score.id})`, 'Score updated.');
+      res.status(200).json(result);
+    })
+    .catch(err => {
+      log.error(__filename, `updateScore(${score.id})`, 'Error updating score ->', err);
+      res.status(500).json(err);
+    });
 };
 
 /**
@@ -188,19 +273,19 @@ let updateScore = async (req: express.Request, res: express.Response) => {
  * @param res - express.Response
  */
 let deleteScore = async (req: express.Request, res: express.Response) => {
-    log.debug(__filename, req.url, 'Handling request -> ' + rebuildUrl(req));
-    let query: any = {id: req.params.scoreId};
+  log.debug(__filename, req.url, 'Handling request -> ' + req.path);
+  let query: any = { id: req.params.scoreId };
 
-    await dbMan
-        .deleteDocument(config.MONGO_COL_SCORES, query)
-        .then((result) => {
-            log.debug(__filename, req.url, `${result.deletedCount} score(s) deleted.`);
-            res.status(200).json(result);
-        })
-        .catch((err) => {
-            log.error(__filename, req.url, 'Error deleting score ->', err);
-            res.status(500).json(err);
-        });
+  await dbMan
+    .deleteDocument(MONGO_COL_SCORES, query)
+    .then(result => {
+      log.debug(__filename, req.url, `${result.deletedCount} score(s) deleted.`);
+      res.status(200).json(result);
+    })
+    .catch(err => {
+      log.error(__filename, req.url, 'Error deleting score ->', err);
+      res.status(500).json(err);
+    });
 };
 
 /**
@@ -210,63 +295,53 @@ let deleteScore = async (req: express.Request, res: express.Response) => {
  * @param res
  */
 let getServiceDoc = (req: express.Request, res: express.Response) => {
-    log.debug(__filename, `Route -> [${req.url}]`, 'Handling request.');
-    res.status(200).json(config.SERVICE_DOC);
+  log.debug(__filename, req.url, 'Handling request -> ' + req.path);
+  res.status(200).json(SERVICE_DOC);
 };
+
+let loadDefaultTrophies;
 
 /**
  * Handles undefined routes
  */
 let unhandledRoute = (req: express.Request, res: express.Response) => {
-    log.warn(__filename, `Route -> [${req.method} -> ${req.url}]`, 'Unhandled route, returning 404.');
-    res.status(404).json({
-        status: '404',
-        message: 'Route not found.  See service documentation for a list of endpoints.',
-        'service-document': getSvcDocUrl
-    });
+  log.warn(__filename, `Route -> [${req.method} -> ${req.url}]`, 'Unhandled route, returning 404.');
+  res.status(404).json({
+    status: '404',
+    message: `Route not found.  See ${ROUTE_PATH}/service for detailed documentation.`,
+  });
 };
 
-/**
- * Generate and a string-based link to the service document's help section using the
- * given request to determine URL parameters.
- *
- * @param req
- */
-function getSvcDocUrl(req: express.Request): string {
-    let svcData: Service = config.SERVICE_DOC;
-    let ep = svcData.getEndpointByName('service');
-    return fmt('%s%s%s', getProtocolHostPort(req), svcData.BaseUrl, ep.Url);
-}
-
-/**
- * Reconstruct the URL from the Express Request object
- * @param req
- */
-function rebuildUrl(req: express.Request): string {
-    return fmt('%s%s%s', getProtocolHostPort(req), ROUTE_PATH, req.path);
-}
-
-/**
- * Get and return the protocol, host, and port for the current
- * request.
- *
- * @param req
- */
-function getProtocolHostPort(req: express.Request): string {
-    return fmt('%s://%s', req.protocol, req.get('host'));
-}
-
 // Route -> http.get mappings
-defaultRouter.get('/get/count', getScoreCount);
-defaultRouter.get('/get', getScores);
 defaultRouter.get('/service', getServiceDoc);
 
+defaultRouter.get('/countScores', (req, res) => {
+  getCount(MONGO_COL_SCORES, req, res);
+});
+
+defaultRouter.get('/countTrophies', (req, res) => {
+  getCount(MONGO_COL_TROPHIES, req, res);
+});
+
+defaultRouter.get('/getTrophies', (req, res) => {
+  getDocs(MONGO_COL_TROPHIES, req, res);
+});
+
+defaultRouter.get('/getScores', (req, res) => {
+  getDocs(MONGO_COL_SCORES, req, res);
+});
+
+// special routes
+defaultRouter.get('/generate/default-trophy-list', genTrophies);
+
+//app.get('/*', (req, res) => {
+
 // Route -> http.put mappings
-defaultRouter.put('/insert', insertScore);
-defaultRouter.put('/update', updateScore);
+defaultRouter.put('/insertScore', insertScore);
+defaultRouter.put('/updateScore', updateScore);
 
 // Route -> http.delete mappings
-defaultRouter.delete('/delete/:scoreId', deleteScore);
+defaultRouter.delete('/deleteScore/:scoreId', deleteScore);
 
 // capture all unhandled routes
 defaultRouter.get('/*', unhandledRoute);

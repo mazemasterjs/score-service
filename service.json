@@ -1,68 +1,115 @@
 {
-    "name": "score",
-    "baseUrl": "/api/score/",
-    "endpoints": [
+  "name": "score",
+  "baseUrl": "/api/score/",
+  "endpoints": [
+    {
+      "name": "service",
+      "description": "This document which gleefully describes itself via json.",
+      "method": "get",
+      "contentType": "application/json",
+      "url": "service",
+      "arguments": []
+    },
+    {
+      "name": "get/scores",
+      "description": "Get score(s) matching the given query parameters. Returns all trophies if no parameters are provided. Example: /get?teamId=SomeTeamId&mazeId=3:3:3:Seed",
+      "method": "get",
+      "contentType": "application/json",
+      "url": "get/scores?key=val&key=val...",
+      "arguments": []
+    },
+    {
+      "name": "insert/score",
+      "description": "Insert the JSON representation of a Score object into the scores collection. Full score object must be passed via document body.",
+      "method": "put",
+      "contentType": "application/json",
+      "url": "insert/score",
+      "arguments": []
+    },
+    {
+      "name": "update/score",
+      "description": "Update an existing score in the database. Full score object must be passed via document body.",
+      "method": "put",
+      "contentType": "application/json",
+      "url": "update/score",
+      "arguments": []
+    },
+    {
+      "name": "delete/score",
+      "description": "Delete score(s) matching the given query parameters. Example: /delete/SomeScoreId",
+      "method": "delete",
+      "contentType": "application/json",
+      "url": "delete/score/{scoreId}",
+      "arguments": [
         {
-            "name": "service",
-            "description": "This document which gleefully describes itself via json.",
-            "method": "get",
-            "contentType": "application/json",
-            "url": "service/",
-            "arguments": []
-        },
-        {
-            "name": "get",
-            "description": "Get score(s) matching the given query parameters. Example: /get?teamId=SomeTeamId&mazeId=3:3:3:Seed",
-            "method": "get",
-            "contentType": "application/json",
-            "url": "get?key=val&key=val...",
-            "arguments": []
-        },
-        {
-            "name": "insert",
-            "description": "Insert the JSON representation of a Score object into the scores collection. Full score object must be passed via document body.",
-            "method": "put",
-            "contentType": "application/json",
-            "url": "insert",
-            "arguments": []
-        },
-        {
-            "name": "update",
-            "description": "Update an existing score in the database. Full score object must be passed via document body.",
-            "method": "put",
-            "contentType": "application/json",
-            "url": "insert",
-            "arguments": []
-        },
-        {
-            "name": "delete",
-            "description": "Delete score(s) matching the given query parameters. Example: /delete/SomeScoreId",
-            "method": "delete",
-            "contentType": "application/json",
-            "url": "delete/{scoreId}",
-            "arguments": [
-                {
-                    "name": "scoreId",
-                    "description": "scoreId is a string GUID that identifies the score document.",
-                    "type": "string"
-                }
-            ]
-        },
-        {
-            "name": "live",
-            "description": "Liveness probe for K8s monitoring.",
-            "contentType": "application/json",
-            "method": "get",
-            "url": "probes/live/",
-            "arguments": []
-        },
-        {
-            "name": "ready",
-            "description": "Readiness probe for K8s monitoring.",
-            "contentType": "application/json",
-            "method": "get",
-            "url": "probes/ready/",
-            "arguments": []
+          "name": "scoreId",
+          "description": "scoreId is a string GUID that identifies the score document.",
+          "type": "string"
         }
-    ]
+      ]
+    },
+    {
+      "name": "get/trophies",
+      "description": "Get trophy(s) matching the given query parameters. Returns all trophies if no parameters are provided. Example: /get?name=DAZED_AND_CONFUSED.",
+      "method": "get",
+      "contentType": "application/json",
+      "url": "get/scores?key=val&key=val...",
+      "arguments": []
+    },
+    {
+      "name": "insert/score",
+      "description": "Insert the JSON representation of a Score object into the scores collection. Full score object must be passed via document body.",
+      "method": "put",
+      "contentType": "application/json",
+      "url": "insert/score",
+      "arguments": []
+    },
+    {
+      "name": "update/score",
+      "description": "Update an existing score in the database. Full score object must be passed via document body.",
+      "method": "put",
+      "contentType": "application/json",
+      "url": "update/score",
+      "arguments": []
+    },
+    {
+      "name": "delete/score",
+      "description": "Delete score(s) matching the given query parameters. Example: /delete/SomeScoreId",
+      "method": "delete",
+      "contentType": "application/json",
+      "url": "delete/score/{scoreId}",
+      "arguments": [
+        {
+          "name": "scoreId",
+          "description": "scoreId is a string GUID that identifies the score document.",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "generate/default-trophy-list",
+      "description": "Regenerates the default trophy list and inserts into the trophies collection.",
+      "method": "get",
+      "contentType": "application/json",
+      "url": "generate/default-trophy-list",
+      "arguments": []
+    },
+
+    {
+      "name": "live",
+      "description": "Liveness probe for K8s monitoring.",
+      "method": "get",
+      "contentType": "application/json",
+      "url": "probes/live/",
+      "arguments": []
+    },
+    {
+      "name": "ready",
+      "description": "Readiness probe for K8s monitoring.",
+      "method": "get",
+      "contentType": "application/json",
+      "url": "probes/ready/",
+      "arguments": []
+    }
+  ]
 }
