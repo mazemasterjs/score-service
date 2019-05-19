@@ -53,7 +53,7 @@ let getScoreCount = async (req: express.Request, res: express.Response) => {
             res.status(200).json({collection: config.MONGO_COL_SCORES, 'score-count': count});
         })
         .catch((err) => {
-            res.status(500).json({status: '500', message: err.message});
+            res.status(500).json(err);
         });
 };
 
@@ -117,7 +117,7 @@ let getScores = async (req: express.Request, res: express.Response) => {
     } catch (err) {
         // log the error and return message
         log.error(__filename, 'getScores()', `Error while collecting scores ->`, err);
-        res.status(500).json({status: '500', message: err.message});
+        return res.status(500).json({error: err.name, message: err.message});
     }
 };
 
@@ -136,17 +136,17 @@ let insertScore = async (req: express.Request, res: express.Response) => {
         score = new Score(req.body);
     } catch (err) {
         log.error(__filename, 'insertScore(...)', 'Unable to instantiate Score ->', err);
-        return res.status(500).json({status: '500', message: `${err.name} - ${err.message}`});
+        return res.status(500).json({error: err.name, message: err.message});
     }
 
     await dbMan
         .insertDocument(config.MONGO_COL_SCORES, score)
         .then((result) => {
-            res.status(200).json(result);
+            return res.status(200).json(result);
         })
         .catch((err: Error) => {
             log.error(__filename, req.url, 'Error inserting score ->', err);
-            res.status(400).json(err);
+            return res.status(500).json(err);
         });
 };
 
@@ -166,7 +166,7 @@ let updateScore = async (req: express.Request, res: express.Response) => {
         score = new Score(req.body);
     } catch (err) {
         log.error(__filename, 'insertScore(...)', 'Unable to instantiate Score ->', err);
-        return res.status(500).json({status: '500', message: `${err.name} - ${err.message}`});
+        return res.status(500).json({error: err.name, message: err.message});
     }
 
     await dbMan
@@ -177,7 +177,7 @@ let updateScore = async (req: express.Request, res: express.Response) => {
         })
         .catch((err) => {
             log.error(__filename, `updateScore(${score.id})`, 'Error updating score ->', err);
-            res.status(500).json({status: '500', message: `${err.name} - ${err.message}`});
+            res.status(500).json(err);
         });
 };
 
@@ -199,7 +199,7 @@ let deleteScore = async (req: express.Request, res: express.Response) => {
         })
         .catch((err) => {
             log.error(__filename, req.url, 'Error deleting score ->', err);
-            res.status(500).json({status: '500', message: `${err.name} - ${err.message}`});
+            res.status(500).json(err);
         });
 };
 
