@@ -36,7 +36,7 @@
         },
         {
             "name": "delete",
-            "description": "Delete score(s) matching the given query parameters. Example: /delete?scoreId=SomeScoreId",
+            "description": "Delete score(s) matching the given query parameters. Example: /delete/SomeScoreId",
             "method": "delete",
             "contentType": "application/json",
             "url": "delete/{scoreId}",
