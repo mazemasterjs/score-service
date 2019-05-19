@@ -57,7 +57,7 @@ let getScoreCount = (req, res) => __awaiter(this, void 0, void 0, function* () {
         res.status(200).json({ collection: config.MONGO_COL_SCORES, 'score-count': count });
     })
         .catch((err) => {
-        res.status(500).json({ status: '500', message: err.message });
+        res.status(500).json(err);
     });
 });
 /**
@@ -117,7 +117,7 @@ let getScores = (req, res) => __awaiter(this, void 0, void 0, function* () {
     catch (err) {
         // log the error and return message
         log.error(__filename, 'getScores()', `Error while collecting scores ->`, err);
-        res.status(500).json({ status: '500', message: err.message });
+        return res.status(500).json({ error: err.name, message: err.message });
     }
 });
 /**
@@ -135,16 +135,16 @@ let insertScore = (req, res) => __awaiter(this, void 0, void 0, function* () {
     }
     catch (err) {
         log.error(__filename, 'insertScore(...)', 'Unable to instantiate Score ->', err);
-        return res.status(500).json({ status: '500', message: `${err.name} - ${err.message}` });
+        return res.status(500).json({ error: err.name, message: err.message });
     }
     yield dbMan
         .insertDocument(config.MONGO_COL_SCORES, score)
         .then((result) => {
-        res.status(200).json(result);
+        return res.status(200).json(result);
     })
         .catch((err) => {
         log.error(__filename, req.url, 'Error inserting score ->', err);
-        res.status(400).json(err);
+        return res.status(500).json(err);
     });
 });
 /**
@@ -163,7 +163,7 @@ let updateScore = (req, res) => __awaiter(this, void 0, void 0, function* () {
     }
     catch (err) {
         log.error(__filename, 'insertScore(...)', 'Unable to instantiate Score ->', err);
-        return res.status(500).json({ status: '500', message: `${err.name} - ${err.message}` });
+        return res.status(500).json({ error: err.name, message: err.message });
     }
     yield dbMan
         .updateDocument(config.MONGO_COL_SCORES, { id: score.id }, score)
@@ -173,7 +173,7 @@ let updateScore = (req, res) => __awaiter(this, void 0, void 0, function* () {
     })
         .catch((err) => {
         log.error(__filename, `updateScore(${score.id})`, 'Error updating score ->', err);
-        res.status(500).json({ status: '500', message: `${err.name} - ${err.message}` });
+        res.status(500).json(err);
     });
 });
 /**
@@ -193,7 +193,7 @@ let deleteScore = (req, res) => __awaiter(this, void 0, void 0, function* () {
     })
         .catch((err) => {
         log.error(__filename, req.url, 'Error deleting score ->', err);
-        res.status(500).json({ status: '500', message: `${err.name} - ${err.message}` });
+        res.status(500).json(err);
     });
 });
 /**

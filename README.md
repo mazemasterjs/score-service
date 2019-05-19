@@ -14,6 +14,10 @@ REST API exposing basic CRUD operations for Score data
 
 ## Change Log
 
+### v1.0.2
+
+-   Minor update to logging and error handling
+
 ### v1.0.0
 
 -   get: '/get/count' - Returns count of all score documents
